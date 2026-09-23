@@ -175,30 +175,43 @@ function App() {
           )}
         </div>
 
-        <Panel label="Vault Status">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.25rem' }}>
-            {stateLabel ? <StatusBadge label={stateLabel} /> : <span style={{ color: MUTED }}>reading...</span>}
-            <span style={{ fontSize: '1.6rem', fontWeight: 400 }}>
-              {balance !== undefined ? `${Number(balance) / 1e18} ETH` : '...'}
-            </span>
-          </div>
+        {!isConnected ? (
           <div
             style={{
-              fontFamily: "ui-monospace, 'Courier New', monospace", fontSize: '0.82rem', color: '#B5AC9A',
-              lineHeight: 2, borderTop: `1px solid ${LINE}`, paddingTop: '1rem',
+              border: `1px solid ${LINE}`,
+              padding: '2.5rem',
+              textAlign: 'center',
+              color: MUTED,
+              fontStyle: 'italic',
+              fontSize: '0.95rem',
             }}
           >
-            <div>owner &nbsp;&nbsp;&nbsp;&nbsp;{owner ? shorten(owner) : '...'}</div>
-            <div>guardian &nbsp;{guardian && guardian !== ZERO ? shorten(guardian) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
-            <div>heir &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{beneficiary && beneficiary !== ZERO ? shorten(beneficiary) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
-            <div style={{ marginTop: '0.4rem', color: '#6b6355' }}>
-              {daysFromSeconds(timeoutPeriod)}-day timeout, {daysFromSeconds(gracePeriod)}-day grace period
-            </div>
+            Connect your wallet to view the vault
           </div>
-        </Panel>
-
-        {isConnected && (
+        ) : (
           <>
+            <Panel label="Vault Status">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.25rem' }}>
+                {stateLabel ? <StatusBadge label={stateLabel} /> : <span style={{ color: MUTED }}>reading...</span>}
+                <span style={{ fontSize: '1.6rem', fontWeight: 400 }}>
+                  {balance !== undefined ? `${Number(balance) / 1e18} ETH` : '...'}
+                </span>
+              </div>
+              <div
+                style={{
+                  fontFamily: "ui-monospace, 'Courier New', monospace", fontSize: '0.82rem', color: '#B5AC9A',
+                  lineHeight: 2, borderTop: `1px solid ${LINE}`, paddingTop: '1rem',
+                }}
+              >
+                <div>owner &nbsp;&nbsp;&nbsp;&nbsp;{owner ? shorten(owner) : '...'}</div>
+                <div>guardian &nbsp;{guardian && guardian !== ZERO ? shorten(guardian) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
+                <div>heir &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{beneficiary && beneficiary !== ZERO ? shorten(beneficiary) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
+                <div style={{ marginTop: '0.4rem', color: '#6b6355' }}>
+                  {daysFromSeconds(timeoutPeriod)}-day timeout, {daysFromSeconds(gracePeriod)}-day grace period
+                </div>
+              </div>
+            </Panel>
+
             <Panel label="Deposit">
               <div style={{ display: 'flex', alignItems: 'center' }}>
                 <Input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} style={{ width: '140px' }} />
