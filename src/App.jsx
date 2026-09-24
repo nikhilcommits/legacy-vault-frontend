@@ -1,267 +1,817 @@
-import { useState } from 'react'
-import { useAccount, useConnect, useDisconnect, useReadContract, useWriteContract } from 'wagmi'
-import { injected } from 'wagmi/connectors'
-import vaultAbi from './Vault.abi.json'
-import { VAULT_ADDRESS } from './wagmi.js'
-import './App.css'
+import { useState } from "react";
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useReadContract,
+  useWriteContract,
+} from "wagmi";
+import { injected } from "wagmi/connectors";
+import { formatEther, parseEther } from "viem";
 
-const STATE_LABELS = ['Active', 'Pending', 'Claimable']
-const STATE_COLORS = {
-  Active: '#7A9B76',
-  Pending: '#C9A227',
-  Claimable: '#7B9EBF',
+import vaultAbi from "./Vault.abi.json";
+import { VAULT_ADDRESS } from "./wagmi.js";
+import "./App.css";
+
+const ZERO =
+  "0x0000000000000000000000000000000000000000";
+
+const STATES = ["Active", "Pending", "Claimable"];
+
+function shortAddress(address) {
+  if (!address) return "-";
+  return `${address.slice(0, 8)}...${address.slice(-6)}`;
 }
-const ZERO = '0x0000000000000000000000000000000000000000'
 
-const BRASS = '#C9A227'
-const INK = '#EDE7D9'
-const BG = '#14120F'
-const LINE = '#332E27'
-const MUTED = '#8A8171'
+function getState(state) {
+  if (state === undefined || state === null) {
+    return "Loading";
+  }
 
-function shorten(addr) {
-  if (!addr) return ''
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  return STATES[Number(state)] || "Unknown";
 }
 
-function VaultMark({ size = 38 }) {
+function formatBalance(value) {
+  if (value === undefined || value === null) {
+    return "0.0000";
+  }
+
+  try {
+    return Number(formatEther(value)).toFixed(4);
+  } catch {
+    return "0.0000";
+  }
+}
+
+function formatDays(value) {
+  if (value === undefined || value === null) {
+    return "-";
+  }
+
+  try {
+    return Math.round(Number(value) / 86400);
+  } catch {
+    return "-";
+  }
+}
+
+function Address({ value }) {
+  if (!value || value === ZERO) {
+    return (
+      <span className="not-configured">
+        Not configured
+      </span>
+    );
+  }
+
   return (
-    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
-      <circle cx="20" cy="20" r="18" stroke={BRASS} strokeWidth="1.5" />
-      <circle cx="20" cy="20" r="12" stroke={BRASS} strokeWidth="1" opacity="0.6" />
-      <circle cx="20" cy="20" r="3" fill={BRASS} />
-      <line x1="20" y1="8" x2="20" y2="12" stroke={BRASS} strokeWidth="1.5" />
-      <line x1="20" y1="28" x2="20" y2="32" stroke={BRASS} strokeWidth="1.5" opacity="0.5" />
-      <line x1="8" y1="20" x2="12" y2="20" stroke={BRASS} strokeWidth="1.5" opacity="0.5" />
-      <line x1="28" y1="20" x2="32" y2="20" stroke={BRASS} strokeWidth="1.5" opacity="0.5" />
-    </svg>
-  )
-}
-
-function StatusBadge({ label }) {
-  const color = STATE_COLORS[label] || MUTED
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontFamily: "'Courier New', ui-monospace, monospace",
-        fontSize: '0.8rem',
-        letterSpacing: '0.03em',
-        color,
-      }}
-    >
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
-      {label}
+    <span className="address-text">
+      {shortAddress(value)}
     </span>
-  )
-}
-
-function Panel({ label, children, style }) {
-  return (
-    <div style={{ border: `1px solid ${LINE}`, padding: '1.75rem', marginBottom: '1.5rem', position: 'relative', ...style }}>
-      {label && (
-        <div
-          style={{
-            position: 'absolute', top: '-0.6rem', left: '1.25rem', background: BG, padding: '0 0.6rem',
-            fontFamily: "Georgia, 'Times New Roman', serif", fontSize: '0.75rem', fontStyle: 'italic', color: MUTED,
-          }}
-        >
-          {label}
-        </div>
-      )}
-      {children}
-    </div>
-  )
-}
-
-function Button({ children, onClick, filled = false, style }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '9px 20px', fontFamily: "Georgia, 'Times New Roman', serif", fontSize: '0.88rem',
-        letterSpacing: '0.01em', cursor: 'pointer', border: `1px solid ${BRASS}`,
-        background: filled ? BRASS : 'transparent', color: filled ? '#14120F' : BRASS,
-        transition: 'background 0.15s, color 0.15s', ...style,
-      }}
-      onMouseOver={(e) => {
-        if (!filled) { e.currentTarget.style.background = BRASS; e.currentTarget.style.color = '#14120F' }
-      }}
-      onMouseOut={(e) => {
-        if (!filled) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = BRASS }
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-function Input({ placeholder, value, onChange, style }) {
-  return (
-    <input
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-      style={{
-        background: 'transparent', border: 'none', borderBottom: `1px solid ${LINE}`, padding: '8px 4px',
-        color: INK, fontFamily: "ui-monospace, 'Courier New', monospace", fontSize: '0.85rem',
-        width: '320px', marginRight: '0.75rem', outline: 'none', ...style,
-      }}
-    />
-  )
+  );
 }
 
 function App() {
-  const { address, isConnected } = useAccount()
-  const { connect } = useConnect()
-  const { disconnect } = useDisconnect()
-  const { writeContract } = useWriteContract()
+  const { address, isConnected } = useAccount();
 
-  const [beneficiaryInput, setBeneficiaryInput] = useState('')
-  const [guardianInput, setGuardianInput] = useState('')
-  const [depositAmount, setDepositAmount] = useState('0.001')
+  const { connect } = useConnect();
 
-  const { data: state } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'state' })
-  const { data: balance } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'balance' })
-  const { data: owner } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'owner' })
-  const { data: guardian } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'guardian' })
-  const { data: beneficiary } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'beneficiary' })
-  const { data: timeoutPeriod } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'timeoutPeriod' })
-  const { data: gracePeriod } = useReadContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName: 'gracePeriod' })
+  const { disconnect } = useDisconnect();
 
-  const call = (functionName, args = [], value) =>
-    writeContract({ address: VAULT_ADDRESS, abi: vaultAbi, functionName, args, value })
+  const { writeContract } = useWriteContract();
 
-  const stateLabel = state !== undefined ? STATE_LABELS[state] : null
-  const daysFromSeconds = (s) => (s !== undefined ? (Number(s) / 86400).toFixed(0) : '...')
+  const [depositAmount, setDepositAmount] =
+    useState("0.001");
 
-  return (
-    <div style={{ minHeight: '100vh', background: BG, color: INK, fontFamily: "Georgia, 'Times New Roman', serif", padding: '3.5rem 1.5rem' }}>
-      <div style={{ maxWidth: 620, margin: '0 auto' }}>
-        <div
-          style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginBottom: '2.75rem', paddingBottom: '1.75rem', borderBottom: `1px solid ${LINE}`,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <VaultMark />
-            <div>
-              <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 400, letterSpacing: '0.01em' }}>Legacy Vault</h1>
-              <p style={{ margin: '3px 0 0 0', color: MUTED, fontSize: '0.82rem', fontStyle: 'italic' }}>
-                Trustless crypto inheritance
-              </p>
-            </div>
+  const [beneficiaryInput, setBeneficiaryInput] =
+    useState("");
+
+  const [guardianInput, setGuardianInput] =
+    useState("");
+
+  const [loading, setLoading] = useState("");
+
+  // =====================================================
+  // CONTRACT READS
+  // =====================================================
+
+  const { data: state } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "state",
+  });
+
+  const { data: balance } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "balance",
+  });
+
+  const { data: owner } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "owner",
+  });
+
+  const { data: guardian } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "guardian",
+  });
+
+  const { data: beneficiary } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "beneficiary",
+  });
+
+  const { data: timeoutPeriod } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "timeoutPeriod",
+  });
+
+  const { data: gracePeriod } = useReadContract({
+    address: VAULT_ADDRESS,
+    abi: vaultAbi,
+    functionName: "gracePeriod",
+  });
+
+  // =====================================================
+  // CONTRACT WRITE
+  // =====================================================
+
+  function execute(functionName, args = [], value) {
+    try {
+      setLoading(functionName);
+
+      const config = {
+        address: VAULT_ADDRESS,
+        abi: vaultAbi,
+        functionName,
+        args,
+      };
+
+      if (value !== undefined) {
+        config.value = value;
+      }
+
+      writeContract(config);
+
+      setTimeout(() => {
+        setLoading("");
+      }, 1500);
+    } catch (error) {
+      console.error(error);
+      setLoading("");
+    }
+  }
+
+  // =====================================================
+  // DEPOSIT
+  // =====================================================
+
+  function handleDeposit() {
+    try {
+      if (
+        !depositAmount ||
+        Number(depositAmount) <= 0
+      ) {
+        alert("Enter a valid ETH amount.");
+        return;
+      }
+
+      const amount = parseEther(depositAmount);
+
+      execute("deposit", [], amount);
+    } catch (error) {
+      console.error(error);
+      alert("Invalid ETH amount.");
+    }
+  }
+
+  // =====================================================
+  // BENEFICIARY
+  // =====================================================
+
+  function handleBeneficiary() {
+    if (!beneficiaryInput) {
+      alert("Enter a beneficiary address.");
+      return;
+    }
+
+    execute("setBeneficiary", [
+      beneficiaryInput,
+    ]);
+  }
+
+  // =====================================================
+  // GUARDIAN
+  // =====================================================
+
+  function handleGuardian() {
+    if (!guardianInput) {
+      alert("Enter a guardian address.");
+      return;
+    }
+
+    execute("setGuardian", [
+      guardianInput,
+    ]);
+  }
+
+  // =====================================================
+  // CONNECT SCREEN
+  // =====================================================
+
+  if (!isConnected) {
+    return (
+      <div className="page">
+        <div className="top-bar">
+          <div className="logo">
+            LEGACY VAULT
           </div>
-          {!isConnected ? (
-            <Button filled onClick={() => connect({ connector: injected() })}>Connect</Button>
-          ) : (
-            <div style={{ textAlign: 'right' }}>
-              <p style={{ margin: 0, fontSize: '0.8rem', color: MUTED, fontFamily: 'ui-monospace, monospace' }}>
-                {shorten(address)}
-              </p>
-              <button
-                onClick={() => disconnect()}
-                style={{
-                  background: 'none', border: 'none', color: '#6b6355', fontSize: '0.78rem',
-                  cursor: 'pointer', padding: 0, marginTop: '3px', fontStyle: 'italic', fontFamily: 'Georgia, serif',
-                }}
-              >
-                disconnect
-              </button>
-            </div>
-          )}
+
+          <div className="network">
+            SEPOLIA
+          </div>
         </div>
 
-        {!isConnected ? (
-          <div
-            style={{
-              border: `1px solid ${LINE}`,
-              padding: '2.5rem',
-              textAlign: 'center',
-              color: MUTED,
-              fontStyle: 'italic',
-              fontSize: '0.95rem',
-            }}
-          >
-            Connect your wallet to view the vault
-          </div>
-        ) : (
-          <>
-            <Panel label="Vault Status">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '1.25rem' }}>
-                {stateLabel ? <StatusBadge label={stateLabel} /> : <span style={{ color: MUTED }}>reading...</span>}
-                <span style={{ fontSize: '1.6rem', fontWeight: 400 }}>
-                  {balance !== undefined ? `${Number(balance) / 1e18} ETH` : '...'}
-                </span>
-              </div>
-              <div
-                style={{
-                  fontFamily: "ui-monospace, 'Courier New', monospace", fontSize: '0.82rem', color: '#B5AC9A',
-                  lineHeight: 2, borderTop: `1px solid ${LINE}`, paddingTop: '1rem',
-                }}
-              >
-                <div>owner &nbsp;&nbsp;&nbsp;&nbsp;{owner ? shorten(owner) : '...'}</div>
-                <div>guardian &nbsp;{guardian && guardian !== ZERO ? shorten(guardian) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
-                <div>heir &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{beneficiary && beneficiary !== ZERO ? shorten(beneficiary) : <span style={{ color: '#6b6355' }}>not set</span>}</div>
-                <div style={{ marginTop: '0.4rem', color: '#6b6355' }}>
-                  {daysFromSeconds(timeoutPeriod)}-day timeout, {daysFromSeconds(gracePeriod)}-day grace period
-                </div>
-              </div>
-            </Panel>
+        <div className="connect-container">
+          <div className="connect-box">
+            <div className="small-label">
+              BLOCKCHAIN INHERITANCE SYSTEM
+            </div>
 
-            <Panel label="Deposit">
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <Input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} style={{ width: '140px' }} />
-                <span style={{ color: MUTED, marginRight: '1rem', fontSize: '0.85rem' }}>ETH</span>
-                <Button
-                  onClick={() => {
-                    const wei = BigInt(Math.round(parseFloat(depositAmount || '0') * 1e18))
-                    if (wei > 0n) call('deposit', [], wei)
+            <h1 className="connect-title">
+              Legacy Vault
+            </h1>
+
+            <p className="connect-text">
+              A non-custodial Ethereum vault for
+              digital inheritance.
+            </p>
+
+            <button
+              onClick={() =>
+                connect({
+                  connector: injected(),
+                })
+              }
+              className="primary-button"
+            >
+              CONNECT WALLET
+            </button>
+
+            <div className="connect-network">
+              Network: Ethereum Sepolia
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentState = getState(state);
+
+  const stateColor =
+    currentState === "Active"
+      ? "#71C96B"
+      : currentState === "Pending"
+      ? "#D6A84F"
+      : currentState === "Claimable"
+      ? "#5DA9DD"
+      : "#999";
+
+  // =====================================================
+  // MAIN UI
+  // =====================================================
+
+  return (
+    <div className="page">
+
+      {/* HEADER */}
+
+      <header className="top-bar">
+        <div className="header-left">
+          <div className="logo">
+            LEGACY VAULT
+          </div>
+
+          <div className="divider">
+            /
+          </div>
+
+          <div className="header-sub">
+            INHERITANCE PROTOCOL
+          </div>
+        </div>
+
+        <div className="header-right">
+          <span className="network">
+            SEPOLIA
+          </span>
+
+          <span className="header-address">
+            {shortAddress(address)}
+          </span>
+
+          <button
+            onClick={() => disconnect()}
+            className="disconnect"
+          >
+            DISCONNECT
+          </button>
+        </div>
+      </header>
+
+      {/* MAIN */}
+
+      <main className="container">
+
+        {/* PAGE HEADING */}
+
+        <div className="page-heading">
+          <div>
+            <div className="section-number">
+              01 / VAULT
+            </div>
+
+            <h1 className="title">
+              Legacy Vault
+            </h1>
+
+            <p className="subtitle">
+              Autonomous inheritance protocol
+            </p>
+          </div>
+
+          <a
+            href={`https://sepolia.etherscan.io/address/${VAULT_ADDRESS}`}
+            target="_blank"
+            rel="noreferrer"
+            className="contract-link"
+          >
+            VIEW CONTRACT ↗
+          </a>
+        </div>
+
+        {/* MAIN GRID */}
+
+        <div className="main-grid">
+
+          {/* LEFT COLUMN */}
+
+          <section>
+
+            {/* BALANCE */}
+
+            <div className="balance-box">
+
+              <div className="balance-header">
+                <span>
+                  VAULT BALANCE
+                </span>
+
+                <span
+                  className="state-indicator"
+                  style={{
+                    color: stateColor,
                   }}
                 >
-                  Deposit
-                </Button>
+                  ● {currentState.toUpperCase()}
+                </span>
               </div>
-            </Panel>
 
-            <Panel label="Proof of Life">
-              <Button onClick={() => call('checkIn')}>Check In</Button>
-              <span style={{ color: MUTED, fontSize: '0.8rem', marginLeft: '1rem' }}>Resets the inactivity clock</span>
-            </Panel>
+              <div className="balance-value">
+                {formatBalance(balance)}
 
-            <Panel label="Claim">
-              <Button onClick={() => call('claim')}>Claim</Button>
-              <span style={{ color: MUTED, fontSize: '0.8rem', marginLeft: '1rem' }}>Only available once the vault is Claimable</span>
-            </Panel>
-
-            <Panel label="Designate Heir">
-              <div style={{ display: 'flex' }}>
-                <Input placeholder="0x..." value={beneficiaryInput} onChange={(e) => setBeneficiaryInput(e.target.value)} />
-                <Button onClick={() => call('setBeneficiary', [beneficiaryInput])}>Set</Button>
+                <span className="balance-unit">
+                  ETH
+                </span>
               </div>
-            </Panel>
 
-            <Panel label="Designate Guardian">
-              <div style={{ display: 'flex' }}>
-                <Input placeholder="0x..." value={guardianInput} onChange={(e) => setGuardianInput(e.target.value)} />
-                <Button onClick={() => call('setGuardian', [guardianInput])}>Set</Button>
+              <div className="balance-footer">
+                <span>
+                  CONTRACT
+                </span>
+
+                <span className="mono">
+                  {shortAddress(
+                    VAULT_ADDRESS
+                  )}
+                </span>
               </div>
-            </Panel>
-          </>
-        )}
 
-        <p style={{ textAlign: 'center', color: '#4a4438', fontSize: '0.78rem', marginTop: '2.5rem', fontStyle: 'italic' }}>
-          <a href={`https://sepolia.etherscan.io/address/${VAULT_ADDRESS}`} target="_blank" rel="noreferrer" style={{ color: MUTED }}>
-            {shorten(VAULT_ADDRESS)}
-          </a>{' '}
-          — deployed on Sepolia
-        </p>
-      </div>
+            </div>
+
+            {/* PARAMETERS */}
+
+            <div className="block">
+
+              <div className="block-title">
+                VAULT PARAMETERS
+              </div>
+
+              <div className="parameter-grid">
+
+                <div className="parameter">
+                  <span className="param-label">
+                    TIMEOUT PERIOD
+                  </span>
+
+                  <strong>
+                    {formatDays(
+                      timeoutPeriod
+                    )}{" "}
+                    DAYS
+                  </strong>
+                </div>
+
+                <div className="parameter">
+                  <span className="param-label">
+                    GRACE PERIOD
+                  </span>
+
+                  <strong>
+                    {formatDays(
+                      gracePeriod
+                    )}{" "}
+                    DAYS
+                  </strong>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* PARTICIPANTS */}
+
+            <div className="block">
+
+              <div className="block-title">
+                VAULT PARTICIPANTS
+              </div>
+
+              <div className="person-row">
+                <span className="person-role">
+                  OWNER
+                </span>
+
+                <Address value={owner} />
+              </div>
+
+              <div className="person-row">
+                <span className="person-role">
+                  BENEFICIARY
+                </span>
+
+                <Address value={beneficiary} />
+              </div>
+
+              <div className="person-row">
+                <span className="person-role">
+                  GUARDIAN
+                </span>
+
+                <Address value={guardian} />
+              </div>
+
+            </div>
+
+            {/* INHERITANCE STATUS */}
+
+            <div className="block">
+
+              <div className="block-title">
+                INHERITANCE STATUS
+              </div>
+
+              <div className="inheritance-content">
+
+                <div className="inheritance-info">
+
+                  <div
+                    className="inheritance-state"
+                    style={{
+                      color: stateColor,
+                    }}
+                  >
+                    {currentState.toUpperCase()}
+                  </div>
+
+                  <div className="inheritance-description">
+                    Claim becomes available when
+                    the vault reaches claimable
+                    state.
+                  </div>
+
+                </div>
+
+                <button
+                  disabled={
+                    currentState !==
+                      "Claimable" ||
+                    loading === "claim"
+                  }
+                  onClick={() =>
+                    execute("claim")
+                  }
+                  className="secondary-button claim-button"
+                  style={{
+                    opacity:
+                      currentState ===
+                      "Claimable"
+                        ? 1
+                        : 0.4,
+                    cursor:
+                      currentState ===
+                      "Claimable"
+                        ? "pointer"
+                        : "not-allowed",
+                  }}
+                >
+                  {loading === "claim"
+                    ? "PROCESSING"
+                    : "CLAIM"}
+                </button>
+
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* RIGHT COLUMN */}
+
+          <aside>
+
+            {/* CHECK IN */}
+
+            <div className="action-box">
+
+              <div className="action-number">
+                ACTION 01
+              </div>
+
+              <h2 className="action-title">
+                Check In
+              </h2>
+
+              <p className="action-text">
+                Confirm continued activity and
+                reset the vault inactivity timer.
+              </p>
+
+              <button
+                disabled={
+                  loading === "checkIn"
+                }
+                onClick={() =>
+                  execute("checkIn")
+                }
+                className="primary-button"
+              >
+                {loading === "checkIn"
+                  ? "PROCESSING..."
+                  : "CHECK IN"}
+              </button>
+
+            </div>
+
+            {/* DEPOSIT */}
+
+            <div className="action-box">
+
+              <div className="action-number">
+                ACTION 02
+              </div>
+
+              <h2 className="action-title">
+                Deposit
+              </h2>
+
+              <p className="action-text">
+                Add ETH directly to your
+                inheritance vault.
+              </p>
+
+              <div className="input-group">
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.001"
+                  value={depositAmount}
+                  onChange={(e) =>
+                    setDepositAmount(
+                      e.target.value
+                    )
+                  }
+                  className="input"
+                  placeholder="0.001"
+                />
+
+                <span className="input-unit">
+                  ETH
+                </span>
+
+              </div>
+
+              <button
+                disabled={
+                  loading === "deposit"
+                }
+                onClick={handleDeposit}
+                className="primary-button"
+              >
+                {loading === "deposit"
+                  ? "PROCESSING..."
+                  : "DEPOSIT FUNDS"}
+              </button>
+
+            </div>
+
+            {/* BENEFICIARY */}
+
+            <div className="action-box">
+
+              <div className="action-number">
+                ACTION 03
+              </div>
+
+              <h2 className="action-title">
+                Beneficiary
+              </h2>
+
+              <p className="action-text">
+                Set the wallet address that
+                receives the vault after
+                inheritance becomes claimable.
+              </p>
+
+              <input
+                value={beneficiaryInput}
+                onChange={(e) =>
+                  setBeneficiaryInput(
+                    e.target.value
+                  )
+                }
+                className="full-input"
+                placeholder="0x..."
+              />
+
+              <button
+                disabled={
+                  loading ===
+                  "setBeneficiary"
+                }
+                onClick={
+                  handleBeneficiary
+                }
+                className="secondary-button"
+              >
+                {loading ===
+                "setBeneficiary"
+                  ? "PROCESSING..."
+                  : "SET BENEFICIARY"}
+              </button>
+
+            </div>
+
+            {/* GUARDIAN */}
+
+            <div className="action-box">
+
+              <div className="action-number">
+                ACTION 04
+              </div>
+
+              <h2 className="action-title">
+                Guardian
+              </h2>
+
+              <p className="action-text">
+                Configure the wallet assigned
+                to the guardian role.
+              </p>
+
+              <input
+                value={guardianInput}
+                onChange={(e) =>
+                  setGuardianInput(
+                    e.target.value
+                  )
+                }
+                className="full-input"
+                placeholder="0x..."
+              />
+
+              <button
+                disabled={
+                  loading === "setGuardian"
+                }
+                onClick={handleGuardian}
+                className="secondary-button"
+              >
+                {loading === "setGuardian"
+                  ? "PROCESSING..."
+                  : "SET GUARDIAN"}
+              </button>
+
+            </div>
+
+          </aside>
+
+        </div>
+
+        {/* SYSTEM STATUS */}
+
+        <div className="activity">
+
+          <div className="block-title">
+            SYSTEM STATUS
+          </div>
+
+          <div className="status-line">
+
+            <span className="green-dot">
+              ●
+            </span>
+
+            <span>
+              Contract connection active
+            </span>
+
+            <span className="status-right">
+              SEPOLIA
+            </span>
+
+          </div>
+
+          <div className="status-line">
+
+            <span
+              style={{
+                color: stateColor,
+              }}
+            >
+              ●
+            </span>
+
+            <span>
+              Vault state: {currentState}
+            </span>
+
+            <span className="status-right">
+              {formatBalance(balance)} ETH
+            </span>
+
+          </div>
+
+          <div className="status-line">
+
+            <span className="status-grey">
+              ●
+            </span>
+
+            <span>
+              Contract address
+            </span>
+
+            <a
+              href={`https://sepolia.etherscan.io/address/${VAULT_ADDRESS}`}
+              target="_blank"
+              rel="noreferrer"
+              className="etherscan"
+            >
+              {shortAddress(
+                VAULT_ADDRESS
+              )}{" "}
+              ↗
+            </a>
+
+          </div>
+
+        </div>
+
+        {/* FOOTER */}
+
+        <footer className="footer">
+
+          <span>
+            LEGACY VAULT / ETHEREUM SEPOLIA
+          </span>
+
+          <span>
+            NON-CUSTODIAL INHERITANCE PROTOCOL
+          </span>
+
+        </footer>
+
+      </main>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
